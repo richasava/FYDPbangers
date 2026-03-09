@@ -1,0 +1,14 @@
+# UE5 ignores, these files are build artifacts and caches for compiling and processing
+src game/DerivedDataCache/
+src game/Intermediate/
+src game/Saved/
+src game/Binaries/
+
+# Visual Studio / IDE
+.vs/
+*.sln
+*.VC.db
+
+# OS
+.DS_Store
+Thumbs.db

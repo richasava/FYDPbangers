@@ -49,13 +49,13 @@ print("Attenuation by filter order (Butterworth band-pass 0.5-4 Hz):")
 print(f"  {'disturbance':22s} {'2nd':>8s} {'4th':>8s}")
 for name, f in noise.items():
     row = []
-    for order in (2, 4):
+    for order in (1, 2):
         sos = signal.butter(order, [f_lo, f_hi], btype='band', fs=fs, output='sos')
         w, h = signal.sosfreqz(sos, worN=16384, fs=fs)
         row.append(20*np.log10(abs(h[np.argmin(np.abs(w-f))]) + 1e-12))
     print(f"  {name:22s} {row[0]:7.1f}dB {row[1]:7.1f}dB")
 
-sos = signal.butter(4, [f_lo, f_hi], btype='band', fs=fs, output='sos')
+sos = signal.butter(2, [f_lo, f_hi], btype='band', fs=fs, output='sos')
 b, a = signal.sos2tf(sos)
 wg, gd = signal.group_delay((b, a), w=np.linspace(0.3, fs/2, 8000), fs=fs)
 card = (wg >= 0.83) & (wg <= 3.0)
@@ -97,7 +97,7 @@ ax2.semilogx(wg_full, gd_ms, color="#7030A0", lw=1.8)
 ax2.axvspan(0.83, 3.0, color="#A9D18E", alpha=0.35)
 ax2.set_ylim(0, 600); ax2.set_xlim(0.05, 12.5)
 ax2.set_xlabel("Frequency (Hz)"); ax2.set_ylabel("Group delay (ms)")
-ax2.set_title("Group delay (HR latency budget = 1 s, N1)")
+ax2.set_title("Group delay (HR latency budget = 5 s, N1)")
 ax2.grid(True, which="both", ls=":", alpha=0.5)
 plt.tight_layout()
 plt.savefig("fig_ppg_filter.png", dpi=140)
@@ -105,8 +105,112 @@ plt.close()
 print("Saved fig_ppg_filter.png")
 print()
 
+fs = 25.0
+f_lo, f_hi = 0.5, 4.0
+sos = signal.butter(2, [f_lo, f_hi], btype='band', fs=fs, output='sos')
+b, a = signal.sos2tf(sos)
+
+# ---------------------------------------------------------------------
+# 3.1.4  PEAK DETECTION AND RATE ESTIMATION  (proves F1)
+# ---------------------------------------------------------------------
+print("=" * 64)
+print("3.1.4  PEAK DETECTION AND RATE ESTIMATION (F1)")
+print("=" * 64)
+
+F1_TOL   = 5.0     # bpm, F1 accuracy requirement
+SNR_DB   = 30.0    # assumed PPG SNR (good optical contact)
+Ts       = 1000/fs # sample period, ms
+
+# --- the problem: sample period vs required interval tolerance --------
+print("Interval tolerance for +/-5 bpm  (dHR = 60000/T^2 * dT):")
+for bpm in (60, 120, 180):
+    T = 60000/bpm
+    print(f"  {bpm:3d} bpm: T = {T:4.0f} ms, tolerance = +/-{F1_TOL*T**2/60000:.1f} ms")
+print(f"  Sample period Ts = {Ts:.0f} ms -> naive peak-pick error = +/-{Ts/2:.0f} ms")
+print(f"  => +/-20 ms > +/-9.3 ms at 180 bpm: naive peak-picking FAILS F1")
+print()
+
+# --- (i) parabolic sub-sample interpolation: measure the jitter -------
+def ppg(t, f, ph):
+    """Realistic PPG: fundamental + 2nd/3rd harmonics (dicrotic notch)."""
+    return (1.00*np.sin(2*np.pi*f*t + ph)
+          + 0.35*np.sin(2*np.pi*2*f*t + ph + 0.6)
+          + 0.15*np.sin(2*np.pi*3*f*t + ph + 1.2))
+
+def peak_jitter(bpm, snr_db, trials=3000, seed=1):
+    """sigma of parabolic-interpolated peak time (ms) vs true peak."""
+    rng = np.random.default_rng(seed)
+    f, namp, err = bpm/60, 10**(-snr_db/20), []
+    for _ in range(trials):
+        ph = rng.uniform(0, 2*np.pi)
+        t  = np.arange(0, 6, 1/fs)
+        x  = ppg(t, f, ph) + namp*rng.standard_normal(len(t))
+        k  = np.argmax(x[3:len(x)-3]) + 3
+        ym, y0, yp = x[k-1], x[k], x[k+1]
+        den = ym - 2*y0 + yp
+        if abs(den) < 1e-12:
+            continue
+        delta = np.clip(0.5*(ym - yp)/den, -1, 1)      # sub-sample offset
+        t_est = (k + delta)/fs
+        td = np.arange(0, 6, 1/2000)                    # dense ground truth
+        w  = (td > t[k] - 0.5/f) & (td < t[k] + 0.5/f)
+        t_true = td[w][np.argmax(ppg(td[w], f, ph))]
+        err.append(abs(t_est - t_true)*1000)
+    return np.percentile(err, 95)/1.645                 # p95 -> sigma
+
+sigma_t = {bpm: peak_jitter(bpm, SNR_DB) for bpm in (60, 120, 180)}
+print(f"(i) Parabolic interpolation, {SNR_DB:.0f} dB SNR -> per-peak jitter:")
+for bpm, s in sigma_t.items():
+    print(f"  {bpm:3d} bpm: sigma_t = {s:4.1f} ms")
+print(f"  => 180 bpm sigma_t = {sigma_t[180]:.1f} ms, still > 9.3 ms: NOT sufficient alone")
+print()
+
+# --- (ii) M-beat averaging: sigma_HR = sqrt(2)*sigma_t*HR^2/(60000*M) --
+def sigma_hr(bpm, M):
+    return np.sqrt(2)*sigma_t[bpm]*bpm**2/(60000*M)
+
+print("(ii) M-beat rolling average -> 2-sigma HR error (bpm):")
+print(f"  {'HR':>5s} " + " ".join(f"{'M='+str(M):>9s}" for M in (1,2,4)))
+for bpm in (60, 120, 180):
+    cells = []
+    for M in (1, 2, 4):
+        e = 2*sigma_hr(bpm, M)
+        cells.append(f"{e:7.2f}{'ok' if e <= F1_TOL else 'XX'}")
+    print(f"  {bpm:5d} " + " ".join(f"{c:>9s}" for c in cells))
+
+M_req = max(next(M for M in range(1, 33) if 2*sigma_hr(bpm, M) <= F1_TOL)
+            for bpm in (60, 120, 180))
+print(f"  => smallest M meeting +/-5 bpm at every rate: M = {M_req}")
+print()
+
+# --- group-delay variation term (from 3.1.3, worst realistic HR jump) --
+wg, gd = signal.group_delay((b, a), w=np.linspace(0.3, fs/2-0.01, 20000), fs=fs)
+gd_ms  = gd/fs*1000
+tau    = lambda bpm: gd_ms[np.argmin(np.abs(wg - bpm/60))]
+print("Group-delay variation under a beat-to-beat HR change:")
+eps_delay = 0.0
+for b1, b2 in ((70, 75), (120, 126), (150, 158)):
+    d   = abs(tau(b2) - tau(b1))                  # differential delay, ms
+    T   = 60000/b2
+    err = abs(60000/(T + d) - 60000/T)            # induced HR error, bpm
+    eps_delay = max(eps_delay, err)
+    print(f"  {b1}->{b2} bpm: d(tau_g) = {d:5.1f} ms -> HR error = {err:.2f} bpm")
+print(f"  => worst case = {eps_delay:.2f} bpm")
+print()
+
+# --- F1 error budget --------------------------------------------------
+eps_timing = 2*sigma_hr(180, M_req)               # worst rate, 2-sigma
+eps_total  = np.hypot(eps_timing, eps_delay)      # independent -> RSS
+print(f"F1 ERROR BUDGET (worst case, 180 bpm, M = {M_req}):")
+print(f"  peak-timing jitter (2 sigma)  = {eps_timing:.2f} bpm")
+print(f"  group-delay variation         = {eps_delay:.2f} bpm")
+print(f"  total (RSS)                   = {eps_total:.2f} bpm")
+print(f"  F1 requirement                = +/-{F1_TOL:.1f} bpm"
+      f"  -> {'MET' if eps_total <= F1_TOL else 'NOT MET'}"
+      f" ({(1-eps_total/F1_TOL)*100:.0f}% margin)")
+
 # =====================================================================
-# 3.1.4  MOTION / YAW (MPU-6050 datasheet-grounded)
+# 3.1.5  MOTION / YAW (MPU-6050 datasheet-grounded)
 # =====================================================================
 print("=" * 64)
 print("3.1.4  MOTION / YAW DRIFT  (MPU-6050 datasheet figures)")

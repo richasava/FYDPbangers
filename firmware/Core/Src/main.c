@@ -166,7 +166,7 @@ int main(void)
 	  float roll  = atan2f(ayg, azg) * 57.2958f;
 	  float pitch = atan2f(-axg, sqrtf(ayg*ayg + azg*azg)) * 57.2958f;
 
-	  // packing roll and pitch into a frame..............
+	  // packing roll and pitch into a frame.........
 	  char frame[40];
 	  int len = snprintf(frame, sizeof(frame), "R:%.1f,P:%.1f\n", roll, pitch);
 	  HAL_UART_Transmit(&huart1, (uint8_t*)frame, len, 100);

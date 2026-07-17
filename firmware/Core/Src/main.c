@@ -46,6 +46,7 @@
 /* Private variables ---------------------------------------------------------*/
 I2C_HandleTypeDef hi2c1;
 
+UART_HandleTypeDef huart1;
 UART_HandleTypeDef huart2;
 
 /* USER CODE BEGIN PV */
@@ -57,6 +58,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_I2C1_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_USART1_UART_Init(void);
 /* USER CODE BEGIN PFP */
 void i2c_bus_recover(void);
 
@@ -108,6 +110,7 @@ int main(void)
   MX_GPIO_Init();
   MX_I2C1_Init();
   MX_USART2_UART_Init();
+  MX_USART1_UART_Init();
   /* USER CODE BEGIN 2 */
   printf("\r\n--- MPU-6050 bring-up ---\r\n");
 
@@ -162,6 +165,11 @@ int main(void)
 	  float axg = ax / 16384.0f, ayg = ay / 16384.0f, azg = az / 16384.0f;
 	  float roll  = atan2f(ayg, azg) * 57.2958f;
 	  float pitch = atan2f(-axg, sqrtf(ayg*ayg + azg*azg)) * 57.2958f;
+
+	  // packing roll and pitch into a frame..............
+	  char frame[40];
+	  int len = snprintf(frame, sizeof(frame), "R:%.1f,P:%.1f\n", roll, pitch);
+	  HAL_UART_Transmit(&huart1, (uint8_t*)frame, len, 100);
 
 	  printf("roll=%6.1f  pitch=%6.1f\r\n", roll, pitch);
 	  HAL_Delay(500);   // 20 Hz
@@ -246,6 +254,39 @@ static void MX_I2C1_Init(void)
   /* USER CODE BEGIN I2C1_Init 2 */
 
   /* USER CODE END I2C1_Init 2 */
+
+}
+
+/**
+  * @brief USART1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_USART1_UART_Init(void)
+{
+
+  /* USER CODE BEGIN USART1_Init 0 */
+
+  /* USER CODE END USART1_Init 0 */
+
+  /* USER CODE BEGIN USART1_Init 1 */
+
+  /* USER CODE END USART1_Init 1 */
+  huart1.Instance = USART1;
+  huart1.Init.BaudRate = 115200;
+  huart1.Init.WordLength = UART_WORDLENGTH_8B;
+  huart1.Init.StopBits = UART_STOPBITS_1;
+  huart1.Init.Parity = UART_PARITY_NONE;
+  huart1.Init.Mode = UART_MODE_TX_RX;
+  huart1.Init.HwFlowCtl = UART_HWCONTROL_NONE;
+  huart1.Init.OverSampling = UART_OVERSAMPLING_16;
+  if (HAL_UART_Init(&huart1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN USART1_Init 2 */
+
+  /* USER CODE END USART1_Init 2 */
 
 }
 

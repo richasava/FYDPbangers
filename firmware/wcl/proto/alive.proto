@@ -1,0 +1,47 @@
+syntax = "proto3";
+
+// ALIVE Wireless Communication Layer (WCL) wire schema.
+//
+// This schema is shared by every hop in the transport chain:
+//   STM32 (BAU)  --UART-->  ESP32  --Wi-Fi/MQTT-->  Mosquitto broker  -->  UE5 (AGE)
+//
+// Keep this file as the single source of truth. Regenerate the C stubs with
+// nanopb whenever it changes (see firmware/WCL/README.md).
+
+package alive;
+
+// Biometric frame: flows BAU -> AGE on topic  alive/biometrics  (MQTT QoS 0).
+//
+// Emitted at the motion sample rate (100 Hz). A single dropped frame is
+// harmless because it is superseded ~10 ms later, which is why QoS 0 is used.
+message BiometricFrame {
+  uint32 seq          = 1;  // monotonic sequence counter (wraps at 2^32)
+  uint32 timestamp_ms = 2;  // BAU uptime in ms at sample time
+
+  // --- Motion channel (6-axis IMU fusion, degrees) --------------------------
+  float imu_roll  = 3;      // gravity-referenced, +/-5 deg (F3)
+  float imu_pitch = 4;      // gravity-referenced, +/-5 deg (F3)
+  float imu_yaw   = 5;      // short-term-relative only (no magnetometer)
+
+  // --- Heart-rate channel (PPG) ---------------------------------------------
+  float hr_bpm = 6;         // beats per minute; 0 = not yet available
+
+  // --- Galvanic skin response -----------------------------------------------
+  float gsr_conductance = 7; // normalized vs. calibrated baseline; 0 = n/a
+
+  // Per-channel validity flags. Lets the AGE ignore channels that are not
+  // populated yet (e.g. during BAU bring-up, only motion is live).
+  bool imu_valid = 8;
+  bool hr_valid  = 9;
+  bool gsr_valid = 10;
+}
+
+// Haptic command: flows AGE -> BAU on topic  alive/haptics  (MQTT QoS 1).
+//
+// Sparse, one-off discrete events (jumpscare, hit, near-miss). QoS 1 guarantees
+// delivery; the AGE dispatcher de-duplicates so "at least once" is safe.
+message HapticCommand {
+  uint32 event_id    = 1;  // index into the BAU-side vibration-pattern LUT
+  uint32 intensity   = 2;  // 0-255 PWM duty target
+  uint32 duration_ms = 3;  // total effect length
+}

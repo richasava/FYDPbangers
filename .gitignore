@@ -1,8 +1,8 @@
 # UE5 ignores, these files are build artifacts and caches for compiling and processing
-src game/DerivedDataCache/
-src game/Intermediate/
-src game/Saved/
-src game/Binaries/
+src_game/DerivedDataCache/
+src_game/Intermediate/
+src_game/Saved/
+src_game/Binaries/
 
 # Visual Studio / IDE
 .vs/

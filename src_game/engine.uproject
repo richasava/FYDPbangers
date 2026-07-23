@@ -54,6 +54,10 @@
 		{
 			"Name": "MultiUserTakes",
 			"Enabled": true
+		},
+		{
+			"Name": "MQTT",
+			"Enabled": true
 		}
 	]
 }

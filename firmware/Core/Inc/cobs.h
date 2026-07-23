@@ -34,6 +34,9 @@ size_t cobs_encode(const uint8_t *src, size_t srclen, uint8_t *dst);
  */
 size_t cobs_decode(const uint8_t *src, size_t srclen, uint8_t *dst);
 
+// boundary checker at COBS decode
+size_t cobs_decode_max(const uint8_t *src, size_t srclen, uint8_t *dst, size_t dstcap);
+
 /** Worst-case encoded size for a payload of @p srclen bytes. */
 #define cobs_encode_bufsize(srclen)  ((srclen) + ((srclen) / 254u) + 1u)
 

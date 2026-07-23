@@ -53,3 +53,29 @@ size_t cobs_decode(const uint8_t *src, size_t srclen, uint8_t *dst)
     }
     return write_idx;
 }
+
+size_t cobs_decode_max(const uint8_t *src, size_t srclen, uint8_t *dst, size_t dstcap){
+    size_t read_idx  = 0;
+    size_t write_idx = 0;
+
+    while (read_idx < srclen) {
+        uint8_t code = src[read_idx];
+        if (code == 0 || read_idx + code > srclen + 1) {
+            return 0; /* malformed */
+        }
+        read_idx++;
+        for (uint8_t i = 1; i < code; i++) {
+            if (write_idx >= dstcap) {
+                return 0; /* would overrun dst */
+            }
+            dst[write_idx++] = src[read_idx++];
+        }
+        if (code != 0xFF && read_idx < srclen) {
+            if (write_idx >= dstcap) {
+                return 0;
+            }
+            dst[write_idx++] = 0; /* the elided zero */
+        }
+    }
+    return write_idx;
+}

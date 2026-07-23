@@ -13,6 +13,7 @@ public class ALIVEGame : ModuleRules
 			"InputCore",
 			"Networking",
 			"Sockets",
+			"MQTTCore",
 		});
 
 		PrivateDependencyModuleNames.AddRange(new string[] { });
